@@ -12,6 +12,10 @@ float GBPerSec(int bytes, float sec) {
   return static_cast<float>(bytes) / (1024. * 1024. * 1024.) / sec;
 }
 
+float GFLOPS(int count, float sec) {
+    return static_cast<float>(count) / (1024. * 1024. * 1024.) / sec;
+}
+
 
 // This is the CUDA "kernel" function that is run on the GPU.  You
 // know this because it is marked as a __global__ function.
@@ -66,33 +70,31 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     float* device_y = nullptr;
     float* device_result = nullptr;
     
-    //
-    // CS149 TODO: allocate device memory buffers on the GPU using cudaMalloc.
-    //
     // We highly recommend taking a look at NVIDIA's
     // tutorial, which clearly walks you through the few lines of code
     // you need to write for this part of the assignment:
     //
     // https://devblogs.nvidia.com/easy-introduction-cuda-c-and-c/
     //
-        
+    cudaMalloc(&device_x, N * sizeof(float));
+    cudaMalloc(&device_y, N * sizeof(float));
+    cudaMalloc(&device_result, N * sizeof(float));
+    
     // start timing after allocation of device memory
     double startTime = CycleTimer::currentSeconds();
 
-    //
-    // CS149 TODO: copy input arrays to the GPU using cudaMemcpy
-    //
-
+    cudaMemcpy(device_x, xarray, N*sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_y, yarray, N*sizeof(float), cudaMemcpyHostToDevice);
    
     // run CUDA kernel. (notice the <<< >>> brackets indicating a CUDA
     // kernel launch) Execution on the GPU occurs here.
+
+    double startKernel = CycleTimer::currentSeconds();
     saxpy_kernel<<<blocks, threadsPerBlock>>>(N, alpha, device_x, device_y, device_result);
+    cudaDeviceSynchronize();
+    double endKernel = CycleTimer::currentSeconds();
 
-    //
-    // CS149 TODO: copy result from GPU back to CPU using cudaMemcpy
-    //
-
-    
+    cudaMemcpy(resultarray, device_result, N*sizeof(float), cudaMemcpyDeviceToHost);
     // end timing after result has been copied back into host memory
     double endTime = CycleTimer::currentSeconds();
 
@@ -102,13 +104,13 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
 		errCode, cudaGetErrorString(errCode));
     }
 
-    double overallDuration = endTime - startTime;
+    double overallDuration = endTime - endKernel + startKernel - startTime;
+    double kernelDuration = endKernel - startKernel;
     printf("Effective BW by CUDA saxpy: %.3f ms\t\t[%.3f GB/s]\n", 1000.f * overallDuration, GBPerSec(totalBytes, overallDuration));
-
-    //
-    // CS149 TODO: free memory buffers on the GPU using cudaFree
-    //
-    
+    printf("Kernel run time: %.3f ms\t\t[%.3f GFLOPS]\n", 1000.f * kernelDuration, GFLOPS(3*N, kernelDuration));
+    cudaFree(device_x);
+    cudaFree(device_y);
+    cudaFree(device_result);
 }
 
 void printCudaInfo() {
@@ -130,6 +132,20 @@ void printCudaInfo() {
         printf("   Global mem: %.0f MB\n",
                static_cast<float>(deviceProps.totalGlobalMem) / (1024 * 1024));
         printf("   CUDA Cap:   %d.%d\n", deviceProps.major, deviceProps.minor);
+        // printf("   sharedMemPerBlock  %d\n", deviceProps.sharedMemPerBlock);
+        // printf("   regs per block  %d\n", deviceProps.regsPerBlock);
+        // printf("   warpSize  %d\n", deviceProps.warpSize);
+        // printf("   maxThreadsPerBlock  %d\n", deviceProps.maxThreadsPerBlock);
+        // printf("   clockRate  %d\n", deviceProps.clockRate);
+        // printf("   computeMode  %d\n", deviceProps.computeMode);
+        // printf("   maxTexture1D  %d\n", deviceProps.maxTexture1D);
+        // printf("   ECCEnabled  %d\n", deviceProps.ECCEnabled);
+        // printf("   asyncEngineCount  %d\n", deviceProps.asyncEngineCount);
+        // printf("   memoryBusWidth  %d\n", deviceProps.memoryBusWidth);
+        // printf("   l2CacheSize  %d\n", deviceProps.l2CacheSize);
+        // printf("   maxThreadsPerMultiProcessor  %d\n", deviceProps.maxThreadsPerMultiProcessor);
+        // printf("   regsPerMultiprocessor  %d\n", deviceProps.regsPerMultiprocessor);
     }
     printf("---------------------------------------------------------\n");
 }
+      

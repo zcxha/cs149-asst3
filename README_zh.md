@@ -61,7 +61,9 @@ double endTime = CycleTimer::currentSeconds();
 
 **问题 1：** 与基于顺序 CPU 的 SAXPY 实现相比，你观察到了什么样的性能表现？（回忆一下你在作业 1 的 Program 5 中关于 saxpy 的结果。）
 
-**问题 2：** 比较并解释两组计时结果之间的差异（只计 kernel 执行时间 vs. 连同数据搬运到 GPU、再搬回来的完整过程时间）。你观察到的带宽值是否与机器不同组件的标称带宽 _大致一致_？（你需要自行上网查询 NVIDIA T4 GPU 的内存带宽。提示：<https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-t4/t4-tensor-core-datasheet-951643.pdf>。AWS 上内存总线的期望带宽为 5.3 GB/s，这与 16 通道 [PCIe 3.0](https://en.wikipedia.org/wiki/PCI_Express) 的数值并不一致。很多因素会使峰值带宽达不到理论值，包括 CPU 主板芯片组性能，以及作为传输源的主机内存是否是 “pinned” 的。后者允许 GPU 直接访问内存，而无需经过虚拟内存地址转换。如果你感兴趣，可以看这里：<https://kth.instructure.com/courses/12406/pages/optimizing-host-device-data-communication-i-pinned-host-memory>）
+**问题 2：** 比较并解释两组计时结果之间的差异（只计 kernel 执行时间 vs. 连同数据搬运到 GPU、再搬回来的完整过程时间）。你观察到的带宽值是否
+
+与机器不同组件的标称带宽 _大致一致_？（你需要自行上网查询 NVIDIA T4 GPU 的内存带宽。提示：<https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-t4/t4-tensor-core-datasheet-951643.pdf>。AWS 上内存总线的期望带宽为 5.3 GB/s，这与 16 通道 [PCIe 3.0](https://en.wikipedia.org/wiki/PCI_Express) 的数值并不一致。很多因素会使峰值带宽达不到理论值，包括 CPU 主板芯片组性能，以及作为传输源的主机内存是否是 “pinned” 的。后者允许 GPU 直接访问内存，而无需经过虚拟内存地址转换。如果你感兴趣，可以看这里：<https://kth.instructure.com/courses/12406/pages/optimizing-host-device-data-communication-i-pinned-host-memory>）
 
 ## 第 2 部分：CUDA 热身 2：并行前缀和（10 分）
 
