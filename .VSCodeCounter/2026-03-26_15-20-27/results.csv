@@ -1,0 +1,22 @@
+"filename", "language", "Python", "CUDA C++", "C++", "Makefile", "comment", "blank", "total"
+"/home/zcx/source/asst3/render/CycleTimer.h", "C++", 0, 0, 19, 0, 3, 6, 28
+"/home/zcx/source/asst3/render/Makefile", "Makefile", 0, 0, 0, 43, 3, 25, 71
+"/home/zcx/source/asst3/render/benchmark.cu", "CUDA C++", 0, 153, 0, 0, 5, 51, 209
+"/home/zcx/source/asst3/render/checker.py", "Python", 151, 0, 0, 0, 20, 43, 214
+"/home/zcx/source/asst3/render/circleRenderer.h", "C++", 0, 0, 33, 0, 2, 19, 54
+"/home/zcx/source/asst3/render/cudaRenderer.cu", "CUDA C++", 0, 382, 0, 0, 128, 136, 646
+"/home/zcx/source/asst3/render/cudaRenderer.h", "C++", 0, 0, 31, 0, 0, 14, 45
+"/home/zcx/source/asst3/render/display.cpp", "C++", 0, 0, 101, 0, 24, 40, 165
+"/home/zcx/source/asst3/render/image.h", "C++", 0, 0, 24, 0, 0, 9, 33
+"/home/zcx/source/asst3/render/main.cpp", "C++", 0, 0, 163, 0, 4, 28, 195
+"/home/zcx/source/asst3/render/noise.cpp", "C++", 0, 0, 105, 0, 18, 9, 132
+"/home/zcx/source/asst3/render/noise.h", "C++", 0, 0, 5, 0, 0, 5, 10
+"/home/zcx/source/asst3/render/platformgl.h", "C++", 0, 0, 8, 0, 0, 4, 12
+"/home/zcx/source/asst3/render/ppm.cpp", "C++", 0, 0, 32, 0, 5, 12, 49
+"/home/zcx/source/asst3/render/ppm.h", "C++", 0, 0, 5, 0, 0, 4, 9
+"/home/zcx/source/asst3/render/refRenderer.cpp", "C++", 0, 0, 263, 0, 84, 80, 427
+"/home/zcx/source/asst3/render/refRenderer.h", "C++", 0, 0, 30, 0, 0, 20, 50
+"/home/zcx/source/asst3/render/sceneLoader.cpp", "C++", 0, 0, 419, 0, 30, 119, 568
+"/home/zcx/source/asst3/render/sceneLoader.h", "C++", 0, 0, 6, 0, 0, 4, 10
+"/home/zcx/source/asst3/render/util.h", "C++", 0, 0, 5, 0, 0, 5, 10
+"Total", "-", 151, 535, 1249, 43, 326, 633, 2937

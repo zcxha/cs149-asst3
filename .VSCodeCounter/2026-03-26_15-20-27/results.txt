@@ -1,0 +1,47 @@
+Date : 2026-03-26 15:20:27
+Directory : /home/zcx/source/asst3/render
+Total : 20 files,  1978 codes, 326 comments, 633 blanks, all 2937 lines
+
+Languages
++----------+------------+------------+------------+------------+------------+
+| language | files      | code       | comment    | blank      | total      |
++----------+------------+------------+------------+------------+------------+
+| C++      |         16 |      1,249 |        170 |        378 |      1,797 |
+| CUDA C++ |          2 |        535 |        133 |        187 |        855 |
+| Python   |          1 |        151 |         20 |         43 |        214 |
+| Makefile |          1 |         43 |          3 |         25 |         71 |
++----------+------------+------------+------------+------------+------------+
+
+Directories
++------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                           | files      | code       | comment    | blank      | total      |
++------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                              |         20 |      1,978 |        326 |        633 |      2,937 |
++------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++------------------------------------------------+----------+------------+------------+------------+------------+
+| filename                                       | language | code       | comment    | blank      | total      |
++------------------------------------------------+----------+------------+------------+------------+------------+
+| /home/zcx/source/asst3/render/CycleTimer.h     | C++      |         19 |          3 |          6 |         28 |
+| /home/zcx/source/asst3/render/Makefile         | Makefile |         43 |          3 |         25 |         71 |
+| /home/zcx/source/asst3/render/benchmark.cu     | CUDA C++ |        153 |          5 |         51 |        209 |
+| /home/zcx/source/asst3/render/checker.py       | Python   |        151 |         20 |         43 |        214 |
+| /home/zcx/source/asst3/render/circleRenderer.h | C++      |         33 |          2 |         19 |         54 |
+| /home/zcx/source/asst3/render/cudaRenderer.cu  | CUDA C++ |        382 |        128 |        136 |        646 |
+| /home/zcx/source/asst3/render/cudaRenderer.h   | C++      |         31 |          0 |         14 |         45 |
+| /home/zcx/source/asst3/render/display.cpp      | C++      |        101 |         24 |         40 |        165 |
+| /home/zcx/source/asst3/render/image.h          | C++      |         24 |          0 |          9 |         33 |
+| /home/zcx/source/asst3/render/main.cpp         | C++      |        163 |          4 |         28 |        195 |
+| /home/zcx/source/asst3/render/noise.cpp        | C++      |        105 |         18 |          9 |        132 |
+| /home/zcx/source/asst3/render/noise.h          | C++      |          5 |          0 |          5 |         10 |
+| /home/zcx/source/asst3/render/platformgl.h     | C++      |          8 |          0 |          4 |         12 |
+| /home/zcx/source/asst3/render/ppm.cpp          | C++      |         32 |          5 |         12 |         49 |
+| /home/zcx/source/asst3/render/ppm.h            | C++      |          5 |          0 |          4 |          9 |
+| /home/zcx/source/asst3/render/refRenderer.cpp  | C++      |        263 |         84 |         80 |        427 |
+| /home/zcx/source/asst3/render/refRenderer.h    | C++      |         30 |          0 |         20 |         50 |
+| /home/zcx/source/asst3/render/sceneLoader.cpp  | C++      |        419 |         30 |        119 |        568 |
+| /home/zcx/source/asst3/render/sceneLoader.h    | C++      |          6 |          0 |          4 |         10 |
+| /home/zcx/source/asst3/render/util.h           | C++      |          5 |          0 |          5 |         10 |
+| Total                                          |          |      1,978 |        326 |        633 |      2,937 |
++------------------------------------------------+----------+------------+------------+------------+------------+

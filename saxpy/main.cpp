@@ -18,8 +18,8 @@ void usage(const char* progname) {
 int main(int argc, char** argv)
 {
 
-    // default: arrays of 100M numbers
-    int N = 100 * 1000 * 1000;
+    // default: arrays of 50M numbers(150*4=600M VRAM)
+    int N = 50 * 1000 * 1000;
 
     // parse commandline options ////////////////////////////////////////////
     int opt;

@@ -27,6 +27,31 @@ static inline int nextPow2(int n) {
     return n;
 }
 
+__global__ void upsweep_kernel(int twod, int twod1, int* result, int N) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    int index = twod1 * (tid + 1) - 1;
+    if(index < N){
+        result[index] = result[index] + result[index - twod];
+
+        if(index == N-1) {
+            result[index] = 0;
+        }
+    }
+}
+
+__global__ void downsweep_kernel(int twod, int twod1, int *result, int N) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    int index = twod1 * (tid + 1) - 1;
+
+    int index2 = index - twod;
+    if(index < N) {
+        int tmp = result[index2];
+        result[index2] = result[index];
+        result[index] += tmp; 
+    }
+}
 // exclusive_scan --
 //
 // Implementation of an exclusive scan on global memory array `input`,
@@ -44,17 +69,25 @@ static inline int nextPow2(int n) {
 // places it in result
 void exclusive_scan(int* input, int N, int* result)
 {
+    const int threadsPerBlock = 128;
 
-    // CS149 TODO:
-    //
-    // Implement your exclusive scan implementation here.  Keep in
-    // mind that although the arguments to this function are device
-    // allocated arrays, this is a function that is running in a thread
-    // on the CPU.  Your implementation will need to make multiple calls
-    // to CUDA kernel functions (that you must write) to implement the
-    // scan.
+    // upsweep phase
+    for (int twod = 1; twod < N/2; twod*=2) {
+        int twod1 = twod*2;
+        
+        int numThreads = N / twod1;
+        int blocks = (numThreads + threadsPerBlock - 1) / threadsPerBlock;
+        upsweep_kernel<<<blocks, threadsPerBlock>>>(twod, twod1, result, N);
+    }
 
+    // downsweep phase
+    for (int twod = N/2; twod >= 1; twod /= 2) {
+        int twod1 = twod*2;
 
+        int numThreads = N / twod1;
+        int blocks = (numThreads + threadsPerBlock - 1) / threadsPerBlock;
+        downsweep_kernel<<<blocks, threadsPerBlock>>>(twod, twod1, result, N);
+    }
 }
 
 

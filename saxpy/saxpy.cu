@@ -6,6 +6,14 @@
 
 #include "CycleTimer.h"
 
+#define CHECK_CUDA(call) do {                                \
+    cudaError_t err = call;                                  \
+    if (err != cudaSuccess) {                                \
+        fprintf(stderr, "CUDA error at %s:%d: %s\n",         \
+                __FILE__, __LINE__, cudaGetErrorString(err));\
+        exit(1);                                             \
+    }                                                        \
+} while(0)
 
 // return GB/sec
 float GBPerSec(int bytes, float sec) {
@@ -51,7 +59,7 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     // compute number of blocks and threads per block.  In this
     // application we've hardcoded thread blocks to contain 512 CUDA
     // threads.
-    const int threadsPerBlock = 512;
+    const int threadsPerBlock = 128;
 
     // Notice the round up here.  The code needs to compute the number
     // of threads blocks needed such that there is one thread per
@@ -76,15 +84,15 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     //
     // https://devblogs.nvidia.com/easy-introduction-cuda-c-and-c/
     //
-    cudaMalloc(&device_x, N * sizeof(float));
-    cudaMalloc(&device_y, N * sizeof(float));
-    cudaMalloc(&device_result, N * sizeof(float));
+    CHECK_CUDA(cudaMalloc(&device_x, N * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&device_y, N * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&device_result, N * sizeof(float)));
     
     // start timing after allocation of device memory
     double startTime = CycleTimer::currentSeconds();
 
-    cudaMemcpy(device_x, xarray, N*sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(device_y, yarray, N*sizeof(float), cudaMemcpyHostToDevice);
+    CHECK_CUDA(cudaMemcpy(device_x, xarray, N*sizeof(float), cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(device_y, yarray, N*sizeof(float), cudaMemcpyHostToDevice));
    
     // run CUDA kernel. (notice the <<< >>> brackets indicating a CUDA
     // kernel launch) Execution on the GPU occurs here.
@@ -94,7 +102,7 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     cudaDeviceSynchronize();
     double endKernel = CycleTimer::currentSeconds();
 
-    cudaMemcpy(resultarray, device_result, N*sizeof(float), cudaMemcpyDeviceToHost);
+    CHECK_CUDA(cudaMemcpy(resultarray, device_result, N*sizeof(float), cudaMemcpyDeviceToHost));
     // end timing after result has been copied back into host memory
     double endTime = CycleTimer::currentSeconds();
 
@@ -107,7 +115,7 @@ void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultar
     double overallDuration = endTime - endKernel + startKernel - startTime;
     double kernelDuration = endKernel - startKernel;
     printf("Effective BW by CUDA saxpy: %.3f ms\t\t[%.3f GB/s]\n", 1000.f * overallDuration, GBPerSec(totalBytes, overallDuration));
-    printf("Kernel run time: %.3f ms\t\t[%.3f GFLOPS]\n", 1000.f * kernelDuration, GFLOPS(3*N, kernelDuration));
+    printf("Kernel run time: %.3f ms\t\t[%.3f GFLOPS]\n", 1000.f * kernelDuration, GFLOPS(2*N, kernelDuration));
     cudaFree(device_x);
     cudaFree(device_y);
     cudaFree(device_result);
