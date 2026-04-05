@@ -8,6 +8,7 @@ import re
 import math
 import random
 import platform
+import shlex
 
 perf_pts = 7
 correctness_pts = 2
@@ -58,6 +59,18 @@ def time_log_file(scene):
 
 
 #### RUNNING THE RENDERERS ####
+def run_shell(command, capture_output=False, as_nobody=False):
+    kwargs = {"shell": True}
+    if capture_output:
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+
+    if as_nobody:
+        command = "env -i su -s /bin/sh nobody -c %s" % shlex.quote(command)
+
+    return subprocess.run(command, **kwargs)
+
+
 def check_correctness(render_cmd, scene):
     cmd_string = "./%s -c %s -s 1024 -S %d -f logs/output > %s" % (
         render_cmd,
@@ -69,9 +82,9 @@ def check_correctness(render_cmd, scene):
 
     # Actually run it
     if os.environ.get("GRADING_TOKEN"):
-        result = subprocess.run([cmd_string], shell=True, user="nobody", env={})
+        result = run_shell(cmd_string, as_nobody=True)
     else:
-        result = subprocess.run([cmd_string], shell=True)
+        result = run_shell(cmd_string)
 
     return result.returncode == 0
 
@@ -90,14 +103,12 @@ def get_time(render_cmd, scene):
 
     # Actually run the renderer
     if os.environ.get("GRADING_TOKEN"):
-        result = subprocess.run(
-            [cmd_string], shell=True, capture_output=True, user="nobody", env={}
-        )
+        result = run_shell(cmd_string, capture_output=True, as_nobody=True)
     else:
-        result = subprocess.run([cmd_string], shell=True, capture_output=True)
+        result = run_shell(cmd_string, capture_output=True)
 
     # Extract the time taken
-    time = float(re.search(r"\d+\.\d+", str(result.stdout)).group())
+    time = float(re.search(r"\d+\.\d+", result.stdout.decode()).group())
     return time
 
 
@@ -210,4 +221,4 @@ if not GRADING_TOKEN:
     score_table(correct, stu_times, ref_times)
 else:
     scores = score_calculate(correct, stu_times, ref_times)
-    print(f"{GRADING_TOKEN}{json.dumps(scores)}")
+    print("%s%s" % (GRADING_TOKEN, json.dumps(scores)))

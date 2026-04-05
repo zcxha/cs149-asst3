@@ -43,7 +43,6 @@ saxpy_kernel(int N, float alpha, float* x, float* y, float* result) {
        result[index] = alpha * x[index] + y[index];
 }
 
-
 // saxpyCuda --
 //
 // This function is regular C code running on the CPU.  It allocates

@@ -12,7 +12,7 @@
 
 #include "CycleTimer.h"
 
-#define THREADS_PER_BLOCK 256
+#define THREADS_PER_BLOCK 128
 
 
 // helper function to round an integer up to the next power of 2
@@ -27,17 +27,16 @@ static inline int nextPow2(int n) {
     return n;
 }
 
+__global__ void set_last_zero(int* result, int N) {
+    result[N-1] = 0;
+}
+
 __global__ void upsweep_kernel(int twod, int twod1, int* result, int N) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
     int index = twod1 * (tid + 1) - 1;
-    if(index < N){
+    if(index < N)
         result[index] = result[index] + result[index - twod];
-
-        if(index == N-1) {
-            result[index] = 0;
-        }
-    }
 }
 
 __global__ void downsweep_kernel(int twod, int twod1, int *result, int N) {
@@ -46,8 +45,8 @@ __global__ void downsweep_kernel(int twod, int twod1, int *result, int N) {
     int index = twod1 * (tid + 1) - 1;
 
     int index2 = index - twod;
+    int tmp = result[index2];
     if(index < N) {
-        int tmp = result[index2];
         result[index2] = result[index];
         result[index] += tmp; 
     }
@@ -69,24 +68,26 @@ __global__ void downsweep_kernel(int twod, int twod1, int *result, int N) {
 // places it in result
 void exclusive_scan(int* input, int N, int* result)
 {
-    const int threadsPerBlock = 128;
-
+    int oldlen = N;
+    N = nextPow2(N);
+    cudaMemset(result + oldlen, 0, (N - oldlen) * sizeof(int));
+    
     // upsweep phase
-    for (int twod = 1; twod < N/2; twod*=2) {
+    for (int twod = 1; twod <= N/2; twod*=2) {
         int twod1 = twod*2;
         
         int numThreads = N / twod1;
-        int blocks = (numThreads + threadsPerBlock - 1) / threadsPerBlock;
-        upsweep_kernel<<<blocks, threadsPerBlock>>>(twod, twod1, result, N);
+        int blocks = (numThreads + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        upsweep_kernel<<<blocks, THREADS_PER_BLOCK>>>(twod, twod1, result, N);
     }
-
+    set_last_zero<<<1,1>>>(result, N);
     // downsweep phase
     for (int twod = N/2; twod >= 1; twod /= 2) {
         int twod1 = twod*2;
 
         int numThreads = N / twod1;
-        int blocks = (numThreads + threadsPerBlock - 1) / threadsPerBlock;
-        downsweep_kernel<<<blocks, threadsPerBlock>>>(twod, twod1, result, N);
+        int blocks = (numThreads + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        downsweep_kernel<<<blocks, THREADS_PER_BLOCK>>>(twod, twod1, result, N);
     }
 }
 

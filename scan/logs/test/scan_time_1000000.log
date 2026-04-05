@@ -6,5 +6,5 @@ Device 0: NVIDIA GeForce GTX 650
    CUDA Cap:   3.0
 ---------------------------------------------------------
 Array size: 1000000
-Student GPU time: 2.346 ms
+Student GPU time: 2.335 ms
 Scan outputs are correct!

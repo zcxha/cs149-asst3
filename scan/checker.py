@@ -6,6 +6,7 @@ import re
 import sys
 import json
 import platform
+import shlex
 
 element_counts = ["1000000", "10000000", "20000000", "40000000"]
 
@@ -26,29 +27,42 @@ if len(sys.argv) != 2 or sys.argv[1] not in ["find_repeats", "scan"]:
     sys.exit(1)
 else:
     test = sys.argv[1]
-    print(f"Test: {test}")
+    print("Test: %s" % test)
 
 print("\n--------------")
 print("Running tests:")
 print("--------------")
 
 
+def run_shell(command, capture_output=False, as_nobody=False):
+    kwargs = {"shell": True}
+    if capture_output:
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+
+    if as_nobody:
+        command = "env -i su -s /bin/sh nobody -c %s" % shlex.quote(command)
+
+    return subprocess.run(command, **kwargs)
+
+
 def check_correctness(test, element_count):
-    correctness_cmd = f"./cudaScan -m {test} -i random -n {element_count} > ./logs/test/{test}_correctness_{element_count}.log"
+    correctness_cmd = (
+        "./cudaScan -m %s -i random -n %s > ./logs/test/%s_correctness_%s.log"
+        % (test, element_count, test, element_count)
+    )
     if os.environ.get("GRADING_TOKEN"):
-        result = subprocess.run(correctness_cmd, shell=True, user="nobody", env={})
+        result = run_shell(correctness_cmd, as_nobody=True)
     else:
-        result = subprocess.run(correctness_cmd, shell=True)
+        result = run_shell(correctness_cmd)
     return result.returncode == 0
 
 
 def get_time(command):
     if os.environ.get("GRADING_TOKEN"):
-        result = subprocess.run(
-            command, shell=True, capture_output=True, user="nobody", env={}
-        )
+        result = run_shell(command, capture_output=True, as_nobody=True)
     else:
-        result = subprocess.run(command, shell=True, capture_output=True)
+        result = run_shell(command, capture_output=True)
     time_match = re.search(r"\d+(\.\d+)?", result.stdout.decode())
     return float(time_match.group()) if time_match else None
 
@@ -59,7 +73,7 @@ def run_tests():
     fast_times = {}
 
     for element_count in element_counts:
-        print(f"\nElement Count: {element_count}")
+        print("\nElement Count: %s" % element_count)
 
         # Correctness check
         correct[element_count] = check_correctness(test, element_count)
@@ -69,18 +83,26 @@ def run_tests():
             print("Correctness failed")
 
         # Get student time
-        student_cmd = f"./cudaScan -m {test} -i random -n {element_count} | tee ./logs/test/{test}_time_{element_count}.log | grep 'Student GPU time:'"
+        student_cmd = (
+            "./cudaScan -m %s -i random -n %s | tee ./logs/test/%s_time_%s.log "
+            "| grep 'Student GPU time:'"
+            % (test, element_count, test, element_count)
+        )
         your_times[element_count] = get_time(student_cmd)
-        print(f"Student Time: {your_times[element_count]}")
+        print("Student Time: %s" % your_times[element_count])
 
         ref_binary = (
             "cudaScan_ref_x86" if platform.machine() == "x86_64" else "cudaScan_ref"
         )
 
         # Get reference time
-        ref_cmd = f"./{ref_binary} -m {test} -i random -n {element_count} | tee ./logs/ref/{test}_time_{element_count}.log | grep 'Student GPU time:'"
+        ref_cmd = (
+            "./%s -m %s -i random -n %s | tee ./logs/ref/%s_time_%s.log "
+            "| grep 'Student GPU time:'"
+            % (ref_binary, test, element_count, test, element_count)
+        )
         fast_times[element_count] = get_time(ref_cmd)
-        print(f"Ref Time: {fast_times[element_count]}")
+        print("Ref Time: %s" % fast_times[element_count])
 
     return correct, your_times, fast_times
 
@@ -118,7 +140,7 @@ def calculate_scores(correct, your_times, fast_times):
 
 def print_score_table(scores, total_score, max_total_score):
     print("\n-------------------------")
-    print(f"{test.capitalize()} Score Table:")
+    print("%s Score Table:" % test.capitalize())
     print("-------------------------")
 
     header = "| %-15s | %-15s | %-15s | %-15s |" % (
@@ -139,7 +161,7 @@ def print_score_table(scores, total_score, max_total_score):
         score_value = score["score"]
 
         if not score["correct"]:
-            stu_time = f"{stu_time} (F)"
+            stu_time = "%s (F)" % stu_time
 
         print(
             "| %-15s | %-15s | %-15s | %-15s |"
@@ -149,7 +171,7 @@ def print_score_table(scores, total_score, max_total_score):
     print(dashes)
     print(
         "| %-33s | %-15s | %-15s |"
-        % ("", "Total score:", f"{total_score}/{max_total_score}")
+        % ("", "Total score:", "%s/%s" % (total_score, max_total_score))
     )
     print(dashes)
 
@@ -164,4 +186,4 @@ if not GRADING_TOKEN:
     print_score_table(scores, total_score, max_total_score)
 else:
     scores = json.dumps(scores)
-    print(f"{GRADING_TOKEN}{scores}")
+    print("%s%s" % (GRADING_TOKEN, scores))

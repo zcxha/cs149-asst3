@@ -24,7 +24,7 @@ void usage(const char* progname) {
 
 void cpu_exclusive_scan(int* start, int* end, int* output) {
 
-//#define PARALLEL 1
+// #define PARALLEL 1
 #ifdef PARALLEL
 
     // note to students: this C code can be helpful when debugging the
@@ -35,7 +35,7 @@ void cpu_exclusive_scan(int* start, int* end, int* output) {
     memmove(output, start, N*sizeof(int));
     
     // upsweep phase
-    for (int twod = 1; twod < N/2; twod*=2) {
+    for (int twod = 1; twod <= N/2; twod*=2) {
         int twod1 = twod*2;
 	
         for (int i = 0; i < N; i += twod1) {
@@ -75,7 +75,6 @@ int cpu_find_repeats(int *start, int length, int *output) {
     }   
     return count;
 }
-
 
 int main(int argc, char** argv) {
   
