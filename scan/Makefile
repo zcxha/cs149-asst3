@@ -22,7 +22,7 @@ endif
 
 OBJDIR=objs
 CXXFLAGS=-O3 -Wall
-LDFLAGS=-L/usr/local/cuda/lib64/ -lcudart
+LDFLAGS=-L/usr/local/cuda/lib64/ -lcudart_static -ldl -lrt -lpthread
 NVCC=nvcc
 NVCCFLAGS=-O3 -m64
 

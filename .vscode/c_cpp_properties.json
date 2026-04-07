@@ -4,14 +4,22 @@
     {
       "name": "Linux",
       "compilerPath": "/usr/bin/g++",
+      "compilerArgs": [
+        "-I${workspaceFolder}/cuda_headers"
+      ],
       "intelliSenseMode": "linux-gcc-x64",
       "cppStandard": "c++17",
       "includePath": [
-        "${workspaceFolder}/**"
+        "${workspaceFolder}",
+        "${workspaceFolder}/scan",
+        "${workspaceFolder}/cuda_headers",
+        "${workspaceFolder}/cuda_headers/**"
       ],
       "browse": {
         "path": [
-          "${workspaceFolder}"
+          "${workspaceFolder}",
+          "${workspaceFolder}/scan",
+          "${workspaceFolder}/cuda_headers"
         ]
       },
       "defines": [
