@@ -608,18 +608,18 @@ void CudaRenderer::myExclusiveScan()
     */
     myKernelAccumulateTileScan<<<gridDim, blockDim>>>(cudaDeviceTileGroupBases);
 
-    // PHASE1 TEST
-    {
-        int groupBases[16];
-        cudaMemcpy(groupBases, cudaDeviceTileGroupBases, sizeof(int) * 16, cudaMemcpyDeviceToHost);
-        printf("groupbase: \n");
-        for (int i = 0; i < 16; i++)
-        {
-            printf("%d ", groupBases[i]);
-        }
-        printf("\n");
-    }
-    // PHASE2 TEST
+    // // PHASE1 TEST
+    // {
+    //     int groupBases[16];
+    //     cudaMemcpy(groupBases, cudaDeviceTileGroupBases, sizeof(int) * 16, cudaMemcpyDeviceToHost);
+    //     printf("groupbase: \n");
+    //     for (int i = 0; i < 16; i++)
+    //     {
+    //         printf("%d ", groupBases[i]);
+    //     }
+    //     printf("\n");
+    // }
+    // // PHASE2 TEST
 
     /*
         Phase 2. merge segments
@@ -628,43 +628,43 @@ void CudaRenderer::myExclusiveScan()
     */
     myKernelMergeSegments<<<gridDim, blockDim>>>(cudaDeviceTileGroupBases, groupCount);
 
-    // PHASE2 TEST
-    {
-        int Counts[4096];
-        cudaMemcpy(Counts, cudaDeviceTileCircleCounts, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
-        printf("[0] ");
-        for (int i = 0; i < 4096; i++)
-        {
-            if (i != 0 && i % 16 == 0)
-            {
-                printf("\n[%d] ", i);
-            }
-            printf("%u ", Counts[i]);
-        }
-        printf("\n");
-        int Offsets[4096];
-        cudaMemcpy(Offsets, cudaDeviceTileCircleOffset, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
-        printf("[0] ");
-        int prefix = 0;
-        for (int i = 0; i < 4096; i++)
-        {
-            if (i > 0)
-            {
-                prefix += Counts[i - 1];
-                if (prefix != Offsets[i])
-                {
-                    printf("\n%d not equal: %u %u\n", i, prefix, Offsets[i]);
-                    break;
-                }
-            }
-            if (i != 0 && i % 16 == 0)
-            {
-                printf("\n[%d] ", i);
-            }
-            printf("%u ", Offsets[i]);
-        }
-    }
-    // PHASE2 TEST
+    // // PHASE2 TEST
+    // {
+    //     int Counts[4096];
+    //     cudaMemcpy(Counts, cudaDeviceTileCircleCounts, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
+    //     printf("[0] ");
+    //     for (int i = 0; i < 4096; i++)
+    //     {
+    //         if (i != 0 && i % 16 == 0)
+    //         {
+    //             printf("\n[%d] ", i);
+    //         }
+    //         printf("%u ", Counts[i]);
+    //     }
+    //     printf("\n");
+    //     int Offsets[4096];
+    //     cudaMemcpy(Offsets, cudaDeviceTileCircleOffset, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
+    //     printf("[0] ");
+    //     int prefix = 0;
+    //     for (int i = 0; i < 4096; i++)
+    //     {
+    //         if (i > 0)
+    //         {
+    //             prefix += Counts[i - 1];
+    //             if (prefix != Offsets[i])
+    //             {
+    //                 printf("\n%d not equal: %u %u\n", i, prefix, Offsets[i]);
+    //                 break;
+    //             }
+    //         }
+    //         if (i != 0 && i % 16 == 0)
+    //         {
+    //             printf("\n[%d] ", i);
+    //         }
+    //         printf("%u ", Offsets[i]);
+    //     }
+    // }
+    // // PHASE2 TEST
 }
 
 // myKernelScatterCircleToIndices -- (CUDA device code)
@@ -1053,25 +1053,25 @@ void CudaRenderer::sortSegments(int *cudaDevTileCircleIndices, int devIndicesCou
         d_offsets,
         d_offsets + 1);
 
-    // TEST
-    {
-        std::vector<int> indices(devIndicesCount);
-        cudaMemcpy(indices.data(), cudaDevTileCircleIndices, sizeof(int) * devIndicesCount, cudaMemcpyDeviceToHost);
+    // // TEST
+    // {
+    //     std::vector<int> indices(devIndicesCount);
+    //     cudaMemcpy(indices.data(), cudaDevTileCircleIndices, sizeof(int) * devIndicesCount, cudaMemcpyDeviceToHost);
 
 
-        printf("sorted indices: \n");
-        printf("[0] ");
-        for(int i = 0; i < devIndicesCount; i++)
-        {
-            if(i != 0 && i % 16 == 0)
-            {
-                printf("\n[%d] ", i);
-            }
-            printf("%d ", indices[i]);
-        }
-        printf("\n");
-    }
-    // TEST
+    //     printf("sorted indices: \n");
+    //     printf("[0] ");
+    //     for(int i = 0; i < devIndicesCount; i++)
+    //     {
+    //         if(i != 0 && i % 16 == 0)
+    //         {
+    //             printf("\n[%d] ", i);
+    //         }
+    //         printf("%d ", indices[i]);
+    //     }
+    //     printf("\n");
+    // }
+    // // TEST
 
     cudaFree(d_temp_storage);
     cudaFree(cudaDevTileCircleIndices_in);
@@ -1105,11 +1105,11 @@ void CudaRenderer::render()
     int devLastTileCircleOffset;
     cudaMemcpy(&devLastTileCircleCount, cudaDeviceTileCircleCounts + tileCount - 1, sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(&devLastTileCircleOffset, cudaDeviceTileCircleOffset + tileCount - 1, sizeof(int), cudaMemcpyDeviceToHost);
-    // TEST
-    {
-        printf("\nNeed to allocate (%d+%d=%d) INDICES\n", devLastTileCircleCount, devLastTileCircleOffset, devLastTileCircleCount + devLastTileCircleOffset);
-    }
-    // TEST
+    // // TEST
+    // {
+    //     printf("\nNeed to allocate (%d+%d=%d) INDICES\n", devLastTileCircleCount, devLastTileCircleOffset, devLastTileCircleCount + devLastTileCircleOffset);
+    // }
+    // // TEST
     int devIndicesCount = devLastTileCircleCount + devLastTileCircleOffset;
     int *cudaDevTileCircleIndices;
     cudaMalloc(&cudaDevTileCircleIndices, sizeof(int) * devIndicesCount);
@@ -1126,23 +1126,23 @@ void CudaRenderer::render()
     */
     myKernelScatterCircleToIndices<<<gridDim0, blockDim0>>>(cudaDevTileCircleIndices, devIndicesCount);
     cudaDeviceSynchronize();
-    // TEST
-    {
-        printf("indices test\n");
-        int Indices[devIndicesCount];
-        cudaMemcpy(Indices, cudaDevTileCircleIndices, sizeof(int) * devIndicesCount, cudaMemcpyDeviceToHost);
-        printf("[0] ");
-        for (int i = 0; i < devIndicesCount; i++)
-        {
-            if (i != 0 && i % 16 == 0)
-            {
-                printf("\n[%d] ", i);
-            }
-            printf("%d ", Indices[i]);
-        }
-        printf("\n");
-    }
-    // TEST
+    // // TEST
+    // {
+    //     printf("indices test\n");
+    //     int Indices[devIndicesCount];
+    //     cudaMemcpy(Indices, cudaDevTileCircleIndices, sizeof(int) * devIndicesCount, cudaMemcpyDeviceToHost);
+    //     printf("[0] ");
+    //     for (int i = 0; i < devIndicesCount; i++)
+    //     {
+    //         if (i != 0 && i % 16 == 0)
+    //         {
+    //             printf("\n[%d] ", i);
+    //         }
+    //         printf("%d ", Indices[i]);
+    //     }
+    //     printf("\n");
+    // }
+    // // TEST
 
     /*
         sortSegments
