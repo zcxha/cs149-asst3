@@ -545,7 +545,8 @@ __global__ void myKernelExclusiveScan()
 
     __syncthreads();
 
-    if(threadIdx.x == blockDim.x - 1) {
+    if (threadIdx.x == blockDim.x - 1)
+    {
         tileCircleOffsets[tileIdx] = sharedTileCircleOffsets[threadIdx.x];
     }
 
@@ -556,7 +557,8 @@ __global__ void myKernelExclusiveScan()
 
     // add base to BLOCK0
     int tmp = 0;
-    if(tileIdx < remain) {
+    if (tileIdx < remain)
+    {
         // input[0] = base[0], input[1] = base[1], ...
         sharedTileCircleCounts[threadIdx.x] = tileCircleOffsets[(tileIdx + 1) * BLOCK_SIZE - 1];
         tmp = sharedTileCircleOffsets[threadIdx.x]; // 备用用来后续恢复
@@ -571,7 +573,8 @@ __global__ void myKernelExclusiveScan()
 
     __syncthreads();
 
-    if(tileIdx < remain) {
+    if (tileIdx < remain)
+    {
         sharedTileCircleOffsets[tileIdx] = tmp;
     }
 
@@ -832,7 +835,7 @@ void CudaRenderer::render()
 {
     dim3 blockDim1(BLOCK_SIZE, 1);
     dim3 gridDim1((tileCount + BLOCK_SIZE - 1) / BLOCK_SIZE);
-    tileReset<<<blockDim1, gridDim1>>>();
+    tileReset<<<gridDim1, blockDim1>>>();
 
     dim3 blockDim0(BLOCK_SIZE, 1);
     dim3 gridDim0((numCircles + BLOCK_SIZE - 1) / BLOCK_SIZE);
@@ -840,7 +843,41 @@ void CudaRenderer::render()
 
     dim3 blockDimeScan(BLOCK_SIZE, 1);
     dim3 gridDimeScan((tileCount + BLOCK_SIZE - 1) / BLOCK_SIZE);
-    myKernelExclusiveScan<<<blockDimeScan, gridDimeScan>>>();
+    myKernelExclusiveScan<<<gridDimeScan, blockDimeScan>>>();
+
+    // TEST
+    int Counts[4096];
+    cudaMemcpy(Counts, cudaDeviceTileCircleCounts, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
+    printf("[0] ");
+    for(int i = 0; i < 4096; i++)
+    {
+        if(i != 0 && i % 16 == 0)
+        {
+            printf("\n[%d] ", i);
+        }
+        printf("%u ", Counts[i]);
+    }
+    printf("\n");
+    int Offsets[4096];
+    cudaMemcpy(Offsets, cudaDeviceTileCircleOffset, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
+    printf("[0] ");
+    int prefix = 0;
+    for(int i = 0; i < 4096; i++)
+    {
+        if(i > 0) {
+            prefix += Counts[i - 1];
+            if(prefix != Offsets[i]) {
+                printf("\n%d not equal: %u %u\n", i, prefix, Offsets[i]);
+                break;
+            }
+        }
+        if(i != 0 && i % 16 == 0)
+        {
+            printf("\n[%d] ", i);
+        }
+        printf("%u ", Offsets[i]);
+    }
+    // TEST
 
     dim3 blockDim(tileWidth, tileHeight);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x, (image->height + blockDim.y - 1) / blockDim.y);
