@@ -1,0 +1,6 @@
+./render_ref_x86: error while loading shared libraries: libcudart.so.12: cannot open shared object file: No such file or directory
+
+
+[checker] Failed to parse timing output.
+[checker] Return code: 0
+[checker] Could not find a numeric time after 'Total'.

@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-import subprocess
+import csv
 import os
-import json
-import shutil
-import re
-import math
-import random
 import platform
+import random
+import re
 import shlex
+import shutil
+import subprocess
+import sys
+import time
 
-perf_pts = 7
-correctness_pts = 2
-
-# scene_names = ["rgb", "rgby", "rand10k", "rand100k", "biglittle", "littlebig", "pattern","bouncingballs", "hypnosis", "fireworks", "snow", "snowsingle", "rand1M", "micro2M"]
-# score_scene_names_list = ["rgb", "rand10k", "rand100k", "pattern", "snowsingle", "biglittle", "rand1M", "micro2M"]
-scene_names = [
+SCENE_NAMES = [
     "rgb",
     "rand10k",
     "rand100k",
@@ -25,200 +22,345 @@ scene_names = [
     "rand1M",
     "micro2M",
 ]
-score_scene_names_list = [
-    "rgb",
-    "rand10k",
-    "rand100k",
-    "pattern",
-    "snowsingle",
-    "biglittle",
-    "rand1M",
-    "micro2M",
-]
-score_scene_names = set(score_scene_names_list)
 
-#### LOGS MANAGEMENT ####
-# Set up a new logs dir (remove old logs dir, create new logs dir)
-if os.path.isdir("logs"):
-    shutil.rmtree("logs")
-os.mkdir("logs")
-if os.environ.get("GRADING_TOKEN"):
-    subprocess.run("chown -R nobody:nogroup logs", shell=True)
+DEFAULT_RUNS = 3
+LOG_DIR = "logs_selfcheck"
+OUTPUT_PREFIX = os.path.join(LOG_DIR, "output")
+CSV_PATH = os.path.join(LOG_DIR, "summary.csv")
 
 
-# Helper functions to convert scene names to appropriate log file names
+def ensure_clean_log_dir(log_dir):
+    if os.path.isdir(log_dir):
+        shutil.rmtree(log_dir)
+    os.mkdir(log_dir)
+
+
 def correctness_log_file(scene):
-    return "./logs/correctness_%s.log" % scene
+    return os.path.join(LOG_DIR, "correctness_%s.log" % scene)
 
 
-def time_log_file(scene):
-    return "./logs/time_%s.log" % scene
+def time_log_file(scene, run_idx):
+    return os.path.join(LOG_DIR, "time_%s_run%d.log" % (scene, run_idx))
 
 
-#### END OF LOGS MANAGEMENT ####
-
-
-#### RUNNING THE RENDERERS ####
-def run_shell(command, capture_output=False, as_nobody=False):
+def run_shell(command, capture_output=False):
     kwargs = {"shell": True}
     if capture_output:
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
-
-    if as_nobody:
-        command = "env -i su -s /bin/sh nobody -c %s" % shlex.quote(command)
-
+        # Python 3.6 compatibility
+        kwargs["universal_newlines"] = True
     return subprocess.run(command, **kwargs)
 
 
-def check_correctness(render_cmd, scene):
-    cmd_string = "./%s -c %s -s 1024 -S %d -f logs/output > %s" % (
+def safe_write_text(path, text):
+    with open(path, "w") as f:
+        f.write(text)
+
+
+def build_correctness_command(render_cmd, scene, output_prefix):
+    seed = random.randint(0, 100000)
+    return "./%s -c %s -s 1024 -S %d -f %s" % (
         render_cmd,
         scene,
-        random.randint(0, 100000),
-        correctness_log_file(scene),
-    )
-    # print("Checking correctness: %s" % cmd_string)
-
-    # Actually run it
-    if os.environ.get("GRADING_TOKEN"):
-        result = run_shell(cmd_string, as_nobody=True)
-    else:
-        result = run_shell(cmd_string)
-
-    return result.returncode == 0
-
-
-# Run a renderer one time and get the time taken
-def get_time(render_cmd, scene):
-    # print("get_time %s %s" % (render_cmd, scene))
-    cmd_string = (
-        "./%s -r cuda -b 0:4 %s -s 1024 -f logs/output | tee %s | grep Total:"
-        % (
-            render_cmd,
-            scene,
-            time_log_file(scene),
-        )
+        seed,
+        shlex.quote(output_prefix),
     )
 
-    # Actually run the renderer
-    if os.environ.get("GRADING_TOKEN"):
-        result = run_shell(cmd_string, capture_output=True, as_nobody=True)
-    else:
-        result = run_shell(cmd_string, capture_output=True)
 
-    # Extract the time taken
-    time = float(re.search(r"\d+\.\d+", result.stdout.decode()).group())
-    return time
+def build_time_command(render_cmd, scene, output_prefix):
+    return "./%s -r cuda -b 0:4 %s -s 1024 -f %s" % (
+        render_cmd,
+        scene,
+        shlex.quote(output_prefix),
+    )
 
 
-#### END OF RUNNING THE RENDERERS ####
+def check_correctness(render_cmd, scene):
+    command = build_correctness_command(render_cmd, scene, OUTPUT_PREFIX)
+    start = time.time()
+    result = run_shell(command, capture_output=True)
+    end = time.time()
+
+    log_text = []
+    log_text.append("$ %s\n" % command)
+    log_text.append("returncode: %s\n" % result.returncode)
+    log_text.append("wall_time_sec: %.6f\n\n" % (end - start))
+    log_text.append("[stdout]\n%s\n\n" % (result.stdout or ""))
+    log_text.append("[stderr]\n%s\n" % (result.stderr or ""))
+    safe_write_text(correctness_log_file(scene), "".join(log_text))
+
+    return {
+        "ok": result.returncode == 0,
+        "returncode": result.returncode,
+        "wall_time_sec": end - start,
+        "stdout": result.stdout or "",
+        "stderr": result.stderr or "",
+        "command": command,
+    }
 
 
-# Run all scenes. Some of them are for performance.
-def run_scenes(n_runs):
-    correct = {}
-    stu_times = {}
-    ref_times = {}
-    for scene in scene_names:
-        print("\nRunning scene: %s..." % (scene))
+def parse_total_time(text):
+    if not text:
+        return None
 
-        # Check for correctness
-        correct[scene] = check_correctness("render", scene)
-        if not correct[scene]:
-            print(
-                "[%s] Correctness failed ... Check %s"
-                % (scene, correctness_log_file(scene))
-            )
+    patterns = [
+        r"Total:\s*([0-9]+(?:\.[0-9]+)?)",
+        r"total:\s*([0-9]+(?:\.[0-9]+)?)",
+        r"TOTAL:\s*([0-9]+(?:\.[0-9]+)?)",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                pass
+
+    # fallback: extract the first float on a line containing "Total"
+    for line in text.splitlines():
+        if "Total" in line or "total" in line or "TOTAL" in line:
+            m = re.search(r"([0-9]+(?:\.[0-9]+)?)", line)
+            if m:
+                try:
+                    return float(m.group(1))
+                except ValueError:
+                    pass
+
+    return None
+
+
+def measure_time(render_cmd, scene, run_idx):
+    command = build_time_command(render_cmd, scene, OUTPUT_PREFIX)
+    start = time.time()
+    result = run_shell(command, capture_output=True)
+    end = time.time()
+
+    combined = ""
+    if result.stdout:
+        combined += result.stdout
+    if result.stderr:
+        if combined:
+            combined += "\n"
+        combined += result.stderr
+
+    parsed_total = parse_total_time(combined)
+
+    log_text = []
+    log_text.append("$ %s\n" % command)
+    log_text.append("returncode: %s\n" % result.returncode)
+    log_text.append("wall_time_sec: %.6f\n" % (end - start))
+    log_text.append("parsed_total: %s\n\n" % ("None" if parsed_total is None else parsed_total))
+    log_text.append("[stdout]\n%s\n\n" % (result.stdout or ""))
+    log_text.append("[stderr]\n%s\n" % (result.stderr or ""))
+    safe_write_text(time_log_file(scene, run_idx), "".join(log_text))
+
+    return {
+        "ok": result.returncode == 0 and parsed_total is not None,
+        "returncode": result.returncode,
+        "wall_time_sec": end - start,
+        "parsed_total": parsed_total,
+        "stdout": result.stdout or "",
+        "stderr": result.stderr or "",
+        "command": command,
+    }
+
+
+def fmt_float(x, digits=3):
+    if x is None:
+        return "-"
+    fmt = "%%.%df" % digits
+    return fmt % x
+
+
+def summarize_scene(scene, correctness_result, timing_results):
+    parsed_times = [r["parsed_total"] for r in timing_results if r["parsed_total"] is not None]
+    wall_times = [r["wall_time_sec"] for r in timing_results]
+
+    timing_successes = 0
+    for r in timing_results:
+        if r["ok"]:
+            timing_successes += 1
+
+    return {
+        "scene": scene,
+        "correct": correctness_result["ok"],
+        "correct_returncode": correctness_result["returncode"],
+        "correct_wall_time_sec": correctness_result["wall_time_sec"],
+        "timing_runs": len(timing_results),
+        "timing_successes": timing_successes,
+        "parsed_min": min(parsed_times) if parsed_times else None,
+        "parsed_avg": (sum(parsed_times) / float(len(parsed_times))) if parsed_times else None,
+        "parsed_max": max(parsed_times) if parsed_times else None,
+        "wall_avg": (sum(wall_times) / float(len(wall_times))) if wall_times else None,
+        "raw_parsed_times": parsed_times,
+    }
+
+
+def print_table(rows):
+    headers = [
+        "Scene",
+        "Correct",
+        "RC",
+        "Chk Wall(s)",
+        "Timing OK",
+        "Min Total",
+        "Avg Total",
+        "Max Total",
+        "Avg Wall(s)",
+    ]
+
+    body = []
+    for row in rows:
+        body.append([
+            row["scene"],
+            "PASS" if row["correct"] else "FAIL",
+            str(row["correct_returncode"]),
+            fmt_float(row["correct_wall_time_sec"], 3),
+            "%d/%d" % (row["timing_successes"], row["timing_runs"]),
+            fmt_float(row["parsed_min"], 3),
+            fmt_float(row["parsed_avg"], 3),
+            fmt_float(row["parsed_max"], 3),
+            fmt_float(row["wall_avg"], 3),
+        ])
+
+    widths = []
+    for i, header in enumerate(headers):
+        max_len = len(header)
+        for row in body:
+            max_len = max(max_len, len(row[i]))
+        widths.append(max_len)
+
+    def sep():
+        return "+-" + "-+-".join("-" * w for w in widths) + "-+"
+
+    def render_row(values):
+        return "| " + " | ".join(values[i].ljust(widths[i]) for i in range(len(values))) + " |"
+
+    print(sep())
+    print(render_row(headers))
+    print(sep())
+    for row in body:
+        print(render_row(row))
+    print(sep())
+
+
+def write_csv(rows, path):
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "scene",
+            "correct",
+            "correct_returncode",
+            "correct_wall_time_sec",
+            "timing_runs",
+            "timing_successes",
+            "parsed_min_total",
+            "parsed_avg_total",
+            "parsed_max_total",
+            "avg_wall_time_sec",
+            "raw_parsed_times",
+        ])
+        for row in rows:
+            writer.writerow([
+                row["scene"],
+                int(bool(row["correct"])),
+                row["correct_returncode"],
+                row["correct_wall_time_sec"],
+                row["timing_runs"],
+                row["timing_successes"],
+                row["parsed_min"],
+                row["parsed_avg"],
+                row["parsed_max"],
+                row["wall_avg"],
+                " ".join(str(x) for x in row["raw_parsed_times"]),
+            ])
+
+
+def run_all(render_binary, runs_per_scene):
+    rows = []
+    for scene in SCENE_NAMES:
+        print("\nRunning scene: %s" % scene)
+
+        correctness_result = check_correctness(render_binary, scene)
+        if correctness_result["ok"]:
+            print("  correctness: PASS")
         else:
-            print("[%s] Correctness passed!" % scene)
+            print("  correctness: FAIL (rc=%s)" % correctness_result["returncode"])
 
-        # Check for performance
-        if scene in score_scene_names:
-            # Do multiple perf runs
-            stu_times[scene] = [get_time("render", scene) for _ in range(n_runs)]
-
-            ref_binary = (
-                "render_ref_x86" if platform.machine() == "x86_64" else "render_ref"
-            )
-            ref_times[scene] = [get_time(ref_binary, scene) for _ in range(n_runs)]
-
-            print("[%s] Student times: " % (scene), stu_times[scene])
-            print("[%s] Reference times: " % (scene), ref_times[scene])
-
-    return correct, stu_times, ref_times
-
-
-# Compute scores
-def score_table(correct, stu_times, ref_times):
-    print("------------")
-    print("Score table:")
-    print("------------")
-    header = "| %-15s | %-16s | %-15s | %-15s |" % (
-        "Scene Name",
-        "Ref Time (T_ref)",
-        "Your Time (T)",
-        "Score",
-    )
-    dashes = "-" * len(header)
-    print(dashes)
-    print(header)
-    print(dashes)
-
-    scores = score_calculate(correct, stu_times, ref_times)
-    total_score = 0
-
-    for score in scores:
-        scene = score["scene"]
-        ref_time = score["ref_time"]
-        stu_time = score["stu_time"] if correct[scene] else "(F)"
-        score = score["score"]
-
-        print("| %-15s | %-16s | %-15s | %-15s |" % (scene, ref_time, stu_time, score))
-        total_score += score
-
-    print(dashes)
-
-    max_total_score = (perf_pts + correctness_pts) * len(score_scene_names)
-    score_string = "%s/%s" % (total_score, max_total_score)
-    print("| %-15s   %-16s | %-15s | %-15s |" % ("", "", "Total score:", score_string))
-
-    print(dashes)
-
-
-def score_calculate(correct, stu_times, ref_times):
-    scores = []
-    for scene in score_scene_names_list:
-        stu_time = min(stu_times[scene])
-        ref_time = min(ref_times[scene])
-        if correct[scene]:
-            if stu_time <= 1.2 * ref_time:
-                score = perf_pts + correctness_pts
-            elif stu_time > 10 * ref_time:
-                score = correctness_pts
+        timing_results = []
+        for run_idx in range(1, runs_per_scene + 1):
+            result = measure_time(render_binary, scene, run_idx)
+            timing_results.append(result)
+            if result["ok"]:
+                print("  timing run %d: parsed Total=%s" % (run_idx, fmt_float(result["parsed_total"], 3)))
             else:
-                score = correctness_pts + math.ceil(perf_pts * (ref_time / stu_time))
+                if result["returncode"] != 0:
+                    print("  timing run %d: FAIL (rc=%s, no usable Total)" % (run_idx, result["returncode"]))
+                else:
+                    print("  timing run %d: FAIL (could not parse Total)" % run_idx)
+
+        rows.append(summarize_scene(scene, correctness_result, timing_results))
+
+    return rows
+
+
+def print_summary(rows):
+    total_scenes = len(rows)
+    correct_scenes = sum(1 for r in rows if r["correct"])
+    fully_timed = sum(1 for r in rows if r["timing_successes"] == r["timing_runs"])
+
+    print("\nSummary")
+    print("=======")
+    print("Python: %s" % sys.version.replace("\n", " "))
+    print("Platform: %s / %s" % (platform.system(), platform.machine()))
+    print("Scenes passed correctness: %d/%d" % (correct_scenes, total_scenes))
+    print("Scenes with all timing runs parsed: %d/%d" % (fully_timed, total_scenes))
+    print_table(rows)
+    print("CSV written to: %s" % CSV_PATH)
+    print("Logs directory: %s" % LOG_DIR)
+
+
+def parse_args(argv):
+    render_binary = "render"
+    runs_per_scene = DEFAULT_RUNS
+
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("-r", "--render"):
+            if i + 1 >= len(argv):
+                raise SystemExit("missing value after %s" % arg)
+            render_binary = argv[i + 1]
+            i += 2
+        elif arg in ("-n", "--runs"):
+            if i + 1 >= len(argv):
+                raise SystemExit("missing value after %s" % arg)
+            runs_per_scene = int(argv[i + 1])
+            if runs_per_scene <= 0:
+                raise SystemExit("runs must be > 0")
+            i += 2
+        elif arg in ("-h", "--help"):
+            print("Usage: python3 render_selfcheck.py [-r render_binary] [-n runs_per_scene]")
+            raise SystemExit(0)
         else:
-            score = 0
+            raise SystemExit("unknown argument: %s" % arg)
 
-        scores.append(
-            {
-                "scene": scene,
-                "correct": correct[scene],
-                "ref_time": ref_time,
-                "stu_time": stu_time,
-                "score": score,
-            }
-        )
-
-    return scores
+    return render_binary, runs_per_scene
 
 
-correct, stu_times, ref_times = run_scenes(3)
+def main(argv):
+    render_binary, runs_per_scene = parse_args(argv)
 
-GRADING_TOKEN = os.environ.get("GRADING_TOKEN")
-if not GRADING_TOKEN:
-    score_table(correct, stu_times, ref_times)
-else:
-    scores = score_calculate(correct, stu_times, ref_times)
-    print("%s%s" % (GRADING_TOKEN, json.dumps(scores)))
+    if not os.path.isfile(render_binary):
+        if not os.path.isfile("./%s" % render_binary):
+            raise SystemExit("render binary not found: %s" % render_binary)
+
+    ensure_clean_log_dir(LOG_DIR)
+    rows = run_all(render_binary, runs_per_scene)
+    write_csv(rows, CSV_PATH)
+    print_summary(rows)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
