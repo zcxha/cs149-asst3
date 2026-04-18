@@ -18,8 +18,7 @@
 #define SCAN_BLOCK_DIM BLOCK_SIZE
 #include "exclusiveScan.cu_inl"
 #include "circleBoxTest.cu_inl"
-#include <cub/cub.cuh>
-
+#include <thrust/system/cuda/detail/cub/device/device_segmented_radix_sort.cuh>
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
@@ -743,21 +742,21 @@ __global__ void myKernelRenderCircles(int *tileCircleIndices)
     float invHeight = 1.f / imageHeight;
 
     float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
-                                                 invHeight * (static_cast<float>(pixelY) + 0.5f));
+                                         invHeight * (static_cast<float>(pixelY) + 0.5f));
 
     float4 *imgPtr = (float4 *)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + pixelX)]);
 
     // get circle indices to share memory
     __shared__ uint circleIndices[BLOCK_SIZE];
-    
-    if(tileThreadIdx < tileCircleCount[tileIdx])
+
+    if (tileThreadIdx < tileCircleCount[tileIdx])
     {
         circleIndices[tileThreadIdx] = tileCircleIndices[tileCircleOffset[tileIdx] + tileThreadIdx];
     }
 
     __syncthreads();
 
-    for(int i = 0; i < tileCircleCount[tileIdx]; i++)
+    for (int i = 0; i < tileCircleCount[tileIdx]; i++)
     {
         int circleIndex = circleIndices[i];
         int index3 = 3 * circleIndex;
@@ -1008,8 +1007,75 @@ void CudaRenderer::advanceAnimation()
     cudaDeviceSynchronize();
 }
 
-void CudaRenderer::sortSegments(int *cudaDevTileCircleIndices, int devIndicesCount) {
-    sortKeys
+// myKernelCalLastOffset -- (CUDA device code)
+// 计算最后一个的结束偏移，排序需要
+__global__ void myKernelCalLastOffset(int *d_offsets, int pos)
+{
+    int *tileCircleCount = cuConstRendererParams.tileCircleCounts;
+    int *tileCircleOffset = cuConstRendererParams.tileCircleOffsets;
+
+    d_offsets[pos] = tileCircleCount[pos - 1] + tileCircleOffset[pos - 1];
+}
+
+void CudaRenderer::sortSegments(int *cudaDevTileCircleIndices, int devIndicesCount)
+{
+    void *d_temp_storage = nullptr;
+    size_t temp_storage_bytes = 0;
+
+    int *cudaDevTileCircleIndices_in;
+    int *d_offsets;
+    cudaMalloc(&cudaDevTileCircleIndices_in, sizeof(int) * devIndicesCount);
+    cudaMalloc(&d_offsets, sizeof(int) * (tileCount + 1));
+
+    cudaMemcpy(cudaDevTileCircleIndices_in, cudaDevTileCircleIndices, sizeof(int) * devIndicesCount, cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_offsets, cudaDeviceTileCircleOffset, sizeof(int) * tileCount, cudaMemcpyDeviceToDevice);
+    myKernelCalLastOffset<<<1, 1>>>(d_offsets, tileCount);
+
+    cub::DeviceSegmentedRadixSort::SortKeys(
+        d_temp_storage,
+        temp_storage_bytes,
+        cudaDevTileCircleIndices_in,
+        cudaDevTileCircleIndices,
+        devIndicesCount,
+        tileCount,
+        cudaDeviceTileCircleOffset,
+        cudaDeviceTileCircleOffset + 1);
+
+    cudaMalloc(&d_temp_storage, temp_storage_bytes);
+
+    cub::DeviceSegmentedRadixSort::SortKeys(
+        d_temp_storage,
+        temp_storage_bytes,
+        cudaDevTileCircleIndices_in,
+        cudaDevTileCircleIndices,
+        devIndicesCount,
+        tileCount,
+        d_offsets,
+        d_offsets + 1);
+
+    // TEST
+    {
+        std::vector<int> indices(devIndicesCount);
+        cudaMemcpy(indices.data(), cudaDevTileCircleIndices, sizeof(int) * devIndicesCount, cudaMemcpyDeviceToHost);
+
+
+        printf("sorted indices: \n");
+        printf("[0] ");
+        for(int i = 0; i < devIndicesCount; i++)
+        {
+            if(i != 0 && i % 16 == 0)
+            {
+                printf("\n[%d] ", i);
+            }
+            printf("%d ", indices[i]);
+        }
+        printf("\n");
+    }
+    // TEST
+
+    cudaFree(d_temp_storage);
+    cudaFree(cudaDevTileCircleIndices_in);
+    cudaFree(d_offsets);
 }
 
 void CudaRenderer::render()
