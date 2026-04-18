@@ -23,6 +23,19 @@
 // Putting all the cuda kernels here
 ///////////////////////////////////////////////////////////////////////////////////////
 
+inline void cudaGetError()
+{
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess)
+    {
+        printf("error: %d (%s)", error, cudaGetErrorString(error));
+    }
+}
+#define CUDAGETERROR    \
+    {                   \
+        cudaGetError(); \
+    }
+
 struct GlobalConstants
 {
 
@@ -37,8 +50,6 @@ struct GlobalConstants
     int *tileCircleCounts;
     int *tileCircleOffsets;
     int *tileCircleCursor;
-
-    int *tileCircleIndices;
 
     int numCircles;
     float *position;
@@ -476,6 +487,8 @@ __global__ void tileReset()
     }
 
     cuConstRendererParams.tileCircleCounts[index] = 0;
+    cuConstRendererParams.tileCircleOffsets[index] = 0;
+    cuConstRendererParams.tileCircleCursor[index] = 0;
 }
 
 // myKernelTileCircleCount -- (CUDA device code)
@@ -546,7 +559,7 @@ __global__ void myKernelAccumulateTileScan(int *tileGroupBases)
     cuConstRendererParams.tileCircleOffsets[tileIdx] = sharedCircleOffset[threadIdx.x];
     if (threadIdx.x == BLOCK_SIZE - 1)
     {
-        tileGroupBases[tileIdx/ BLOCK_SIZE] = sharedCircleOffset[threadIdx.x] + sharedCircleCount[threadIdx.x];
+        tileGroupBases[tileIdx / BLOCK_SIZE] = sharedCircleOffset[threadIdx.x] + sharedCircleCount[threadIdx.x];
     }
 }
 
@@ -584,7 +597,7 @@ void CudaRenderer::myExclusiveScan()
     int groupCount = (tileCount + BLOCK_SIZE - 1) / BLOCK_SIZE;
     int *cudaDeviceTileGroupBases;
     cudaMalloc(&cudaDeviceTileGroupBases, sizeof(int) * groupCount);
-assert(groupCount==16);
+    assert(groupCount == 16);
     dim3 blockDim(BLOCK_SIZE, 1);
     dim3 gridDim(groupCount); // for 1024 x 1024, tileCount should be 4096, this should be 16
     /*
@@ -594,16 +607,18 @@ assert(groupCount==16);
     */
     myKernelAccumulateTileScan<<<gridDim, blockDim>>>(cudaDeviceTileGroupBases);
 
-    // TEST
-    int groupBases[16];
-    cudaMemcpy(groupBases, cudaDeviceTileGroupBases, sizeof(int) * 16, cudaMemcpyDeviceToHost);
-    printf("groupbase: \n");
-    for (int i = 0; i < 16; i++)
+    // PHASE1 TEST
     {
-        printf("%d ", groupBases[i]);
+        int groupBases[16];
+        cudaMemcpy(groupBases, cudaDeviceTileGroupBases, sizeof(int) * 16, cudaMemcpyDeviceToHost);
+        printf("groupbase: \n");
+        for (int i = 0; i < 16; i++)
+        {
+            printf("%d ", groupBases[i]);
+        }
+        printf("\n");
     }
-    printf("\n");
-    // TEST
+    // PHASE2 TEST
 
     /*
         Phase 2. merge segments
@@ -612,41 +627,93 @@ assert(groupCount==16);
     */
     myKernelMergeSegments<<<gridDim, blockDim>>>(cudaDeviceTileGroupBases, groupCount);
 
-    // TEST
-    int Counts[4096];
-    cudaMemcpy(Counts, cudaDeviceTileCircleCounts, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
-    printf("[0] ");
-    for (int i = 0; i < 4096; i++)
+    // PHASE2 TEST
     {
-        if (i != 0 && i % 16 == 0)
+        int Counts[4096];
+        cudaMemcpy(Counts, cudaDeviceTileCircleCounts, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
+        printf("[0] ");
+        for (int i = 0; i < 4096; i++)
         {
-            printf("\n[%d] ", i);
-        }
-        printf("%u ", Counts[i]);
-    }
-    printf("\n");
-    int Offsets[4096];
-    cudaMemcpy(Offsets, cudaDeviceTileCircleOffset, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
-    printf("[0] ");
-    int prefix = 0;
-    for (int i = 0; i < 4096; i++)
-    {
-        if (i > 0)
-        {
-            prefix += Counts[i - 1];
-            if (prefix != Offsets[i])
+            if (i != 0 && i % 16 == 0)
             {
-                printf("\n%d not equal: %u %u\n", i, prefix, Offsets[i]);
-                break;
+                printf("\n[%d] ", i);
             }
+            printf("%u ", Counts[i]);
         }
-        if (i != 0 && i % 16 == 0)
+        printf("\n");
+        int Offsets[4096];
+        cudaMemcpy(Offsets, cudaDeviceTileCircleOffset, sizeof(int) * 4096, cudaMemcpyDeviceToHost);
+        printf("[0] ");
+        int prefix = 0;
+        for (int i = 0; i < 4096; i++)
         {
-            printf("\n[%d] ", i);
+            if (i > 0)
+            {
+                prefix += Counts[i - 1];
+                if (prefix != Offsets[i])
+                {
+                    printf("\n%d not equal: %u %u\n", i, prefix, Offsets[i]);
+                    break;
+                }
+            }
+            if (i != 0 && i % 16 == 0)
+            {
+                printf("\n[%d] ", i);
+            }
+            printf("%u ", Offsets[i]);
         }
-        printf("%u ", Offsets[i]);
     }
-    // TEST
+    // PHASE2 TEST
+}
+
+// myKernelScatterCircleToIndices -- (CUDA device code)
+//
+// scatter the circle to indices
+__global__ void myKernelScatterCircleToIndices(int *tileCircleIndices, int indicesCount)
+{
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= cuConstRendererParams.numCircles)
+    {
+        return;
+    }
+
+    int index3 = 3 * index;
+
+    int tileCountX = cuConstRendererParams.tileCountX;
+    int tileCountY = cuConstRendererParams.tileCountY;
+    int tileCount = cuConstRendererParams.tileCount;
+
+    // read position and radius
+    float3 p = *(float3 *)(&cuConstRendererParams.position[index3]);
+    float rad = cuConstRendererParams.radius[index];
+
+    float minX = p.x - rad;
+    float maxX = p.x + rad;
+    float minY = p.y - rad;
+    float maxY = p.y + rad;
+
+    int tileMinX = clamp(static_cast<int>(minX * tileCountX), 0, tileCountX);
+    int tileMaxX = clamp(static_cast<int>(maxX * tileCountX) + 1, 0, tileCountX);
+    int tileMinY = clamp(static_cast<int>(minY * tileCountY), 0, tileCountY);
+    int tileMaxY = clamp(static_cast<int>(maxY * tileCountY) + 1, 0, tileCountY);
+
+    int *tileCircleCounts = cuConstRendererParams.tileCircleCounts;
+    int *tileCircleCursor = cuConstRendererParams.tileCircleCursor;
+    int *tileCircleOffset = cuConstRendererParams.tileCircleOffsets;
+
+    for (int tileY = tileMinY; tileY < tileMaxY; tileY++)
+    {
+        for (int tileX = tileMinX; tileX < tileMaxX; tileX++)
+        {
+            int tileId = tileY * tileCountX + tileX;
+
+            int indicesIdx = tileCircleOffset[tileId] + tileCircleCursor[tileId];
+            tileCircleIndices[indicesIdx] = index;
+
+            atomicAdd(&tileCircleCursor[tileId], 1);
+        }
+    }
 }
 
 // myKernelRenderCircles -- (CUDA device code)
@@ -800,7 +867,6 @@ void CudaRenderer::setup()
     params.tileCircleCounts = cudaDeviceTileCircleCounts;
     params.tileCircleCursor = cudaDeviceTileCircleCursor;
     params.tileCircleOffsets = cudaDeviceTileCircleOffset;
-    params.tileCircleIndices = cudaDeviceTileCircleIndices;
 
     // device
     // cudaMalloc(&params.tileCircleIndices[i], tilecirclesize);
@@ -899,24 +965,78 @@ void CudaRenderer::advanceAnimation()
 
 void CudaRenderer::render()
 {
+    /*
+        Reset Count array
+    */
     dim3 blockDim1(BLOCK_SIZE, 1);
     dim3 gridDim1((tileCount + BLOCK_SIZE - 1) / BLOCK_SIZE);
     tileReset<<<gridDim1, blockDim1>>>();
 
+    /*
+        count Circle to each Tile
+    */
     dim3 blockDim0(BLOCK_SIZE, 1);
     dim3 gridDim0((numCircles + BLOCK_SIZE - 1) / BLOCK_SIZE);
     myKernelTileCircleCount<<<gridDim0, blockDim0>>>();
-
+    /*
+        do Exclusive Scan to calculate Offsets
+    */
     myExclusiveScan();
 
+    /*
+        Allocate Indices GPU Memory Space
+    */
+    int devLastTileCircleCount;
+    int devLastTileCircleOffset;
+    cudaMemcpy(&devLastTileCircleCount, cudaDeviceTileCircleCounts + tileCount - 1, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&devLastTileCircleOffset, cudaDeviceTileCircleOffset + tileCount - 1, sizeof(int), cudaMemcpyDeviceToHost);
+    // TEST
+    {
+        printf("\nNeed to allocate (%d+%d=%d) INDICES\n", devLastTileCircleCount, devLastTileCircleOffset, devLastTileCircleCount + devLastTileCircleOffset);
+    }
+    // TEST
+    int devIndicesCount = devLastTileCircleCount + devLastTileCircleOffset;
+    int *cudaDevTileCircleIndices;
+    cudaMalloc(&cudaDevTileCircleIndices, sizeof(int) * devIndicesCount);
+    cudaMemset(cudaDevTileCircleIndices, 0, sizeof(int) * devIndicesCount);
+    /*
+        Record circle Indices to specified Tile position
+
+        foreach circle in numCircle {
+            for t that circle overlaps {
+                Indices[tileOffset[t] + Cursor[t]] = circle
+                atomicAdd(Cursor[t], 1)
+            }
+        }
+    */
+    myKernelScatterCircleToIndices<<<gridDim0, blockDim0>>>(cudaDevTileCircleIndices, devIndicesCount);
+    cudaDeviceSynchronize();
+    // TEST
+    {
+        printf("indices test\n");
+        int Indices[devIndicesCount];
+        cudaMemcpy(Indices, cudaDevTileCircleIndices, sizeof(int) * devIndicesCount, cudaMemcpyDeviceToHost);
+        printf("[0] ");
+        for (int i = 0; i < devIndicesCount; i++)
+        {
+            if (i != 0 && i % 16 == 0)
+            {
+                printf("\n[%d] ", i);
+            }
+            printf("%d ", Indices[i]);
+        }
+        printf("\n");
+    }
+    // TEST
+
+    /*
+        Render
+    */
     dim3 blockDim(tileWidth, tileHeight);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x, (image->height + blockDim.y - 1) / blockDim.y);
     myKernelRenderCircles<<<gridDim, blockDim>>>();
-
-    cudaError_t error = cudaGetLastError();
-    if (error != cudaSuccess)
     {
-        printf("error: %d (%s)", error, cudaGetErrorString(error));
+        CUDAGETERROR
+        cudaDeviceSynchronize();
     }
-    cudaDeviceSynchronize();
 }

@@ -31,8 +31,6 @@ private:
     int *cudaDeviceTileCircleOffset;
     int *cudaDeviceTileCircleCursor;
 
-    int *cudaDeviceTileCircleIndices;
-
 public:
     CudaRenderer();
     virtual ~CudaRenderer();
