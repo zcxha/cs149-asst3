@@ -38,7 +38,7 @@ struct GlobalConstants
     int *tileCircleOffsets;
     int *tileCircleCursor;
 
-    int **tileCircleIndices; // 4096 tiles
+    int *tileCircleIndices;
 
     int numCircles;
     float *position;
@@ -524,6 +524,61 @@ __global__ void myKernelTileCircleCount()
     }
 }
 
+// myKernelExclusiveScan -- (CUDA device code)
+// generate scan for count
+// Offsets are scans for Counts
+__global__ void myKernelExclusiveScan()
+{
+    int tileIdx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    int *tileCircleOffsets = cuConstRendererParams.tileCircleOffsets;
+    int *tileCircleCounts = cuConstRendererParams.tileCircleCounts;
+
+    __shared__ uint sharedTileCircleOffsets[BLOCK_SIZE];
+    __shared__ uint sharedTileCircleCounts[BLOCK_SIZE];
+    __shared__ uint sharedScratch[BLOCK_SIZE * 2]; // blockDim.x = BLOCK_SIZE = 256 = 16 * 16 = tileWidth * tileHeight
+    sharedTileCircleCounts[threadIdx.x] = tileCircleCounts[tileIdx];
+
+    __syncthreads();
+
+    sharedMemExclusiveScan(threadIdx.x, sharedTileCircleCounts, sharedTileCircleOffsets, sharedScratch, BLOCK_SIZE);
+
+    __syncthreads();
+
+    if(threadIdx.x == blockDim.x - 1) {
+        tileCircleOffsets[tileIdx] = sharedTileCircleOffsets[threadIdx.x];
+    }
+
+    __syncthreads();
+
+    // tileBlock (16 bases)
+    int remain = cuConstRendererParams.tileCount / BLOCK_SIZE; // 4096 / 256 = 16
+
+    // add base to BLOCK0
+    int tmp = 0;
+    if(tileIdx < remain) {
+        // input[0] = base[0], input[1] = base[1], ...
+        sharedTileCircleCounts[threadIdx.x] = tileCircleOffsets[(tileIdx + 1) * BLOCK_SIZE - 1];
+        tmp = sharedTileCircleOffsets[threadIdx.x]; // 备用用来后续恢复
+
+        sharedMemExclusiveScan(threadIdx.x, sharedTileCircleCounts, sharedTileCircleOffsets, sharedScratch, remain);
+
+        tileCircleOffsets[tileIdx] = sharedTileCircleOffsets[threadIdx.x];
+    }
+    __syncthreads();
+
+    sharedTileCircleOffsets[threadIdx.x] += tileCircleOffsets[tileIdx / BLOCK_SIZE];
+
+    __syncthreads();
+
+    if(tileIdx < remain) {
+        sharedTileCircleOffsets[tileIdx] = tmp;
+    }
+
+    __syncthreads();
+
+    tileCircleOffsets[tileIdx] = sharedTileCircleOffsets[threadIdx.x];
+}
 
 // myKernelRenderCircles -- (CUDA device code)
 //
@@ -775,8 +830,6 @@ void CudaRenderer::advanceAnimation()
 
 void CudaRenderer::render()
 {
-    // TODO: change to thread assignment
-    // cudaMemset(cuConstRendererParams.tileCircleCounts, 0, sizeof(int) * tileCount);
     dim3 blockDim1(BLOCK_SIZE, 1);
     dim3 gridDim1((tileCount + BLOCK_SIZE - 1) / BLOCK_SIZE);
     tileReset<<<blockDim1, gridDim1>>>();
@@ -785,12 +838,15 @@ void CudaRenderer::render()
     dim3 gridDim0((numCircles + BLOCK_SIZE - 1) / BLOCK_SIZE);
     myKernelTileCircleCount<<<gridDim0, blockDim0>>>();
 
+    dim3 blockDimeScan(BLOCK_SIZE, 1);
+    dim3 gridDimeScan((tileCount + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    myKernelExclusiveScan<<<blockDimeScan, gridDimeScan>>>();
 
     dim3 blockDim(tileWidth, tileHeight);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x, (image->height + blockDim.y - 1) / blockDim.y);
     myKernelRenderCircles<<<gridDim, blockDim>>>();
 
-    error = cudaGetLastError();
+    cudaError_t error = cudaGetLastError();
     if (error != cudaSuccess)
     {
         printf("error: %d (%s)", error, cudaGetErrorString(error));
