@@ -709,10 +709,9 @@ __global__ void myKernelScatterCircleToIndices(int *tileCircleIndices, int indic
         {
             int tileId = tileY * tileCountX + tileX;
 
-            int indicesIdx = tileCircleOffset[tileId] + tileCircleCursor[tileId];
+            int localIdx = atomicAdd(&tileCircleCursor[tileId], 1);
+            int indicesIdx = tileCircleOffset[tileId] + localIdx;
             tileCircleIndices[indicesIdx] = index;
-
-            atomicAdd(&tileCircleCursor[tileId], 1);
         }
     }
 }
