@@ -51,6 +51,8 @@ public:
 
     void myExclusiveScan();
 
+    void sortSegments(int *cudaDevTileCircleIndices, int devIndicesCount);
+
     void shadePixel(int circleIndex, float pixelCenterX, float pixelCenterY,
                     float px, float py, float pz, float *pixelData);
 };

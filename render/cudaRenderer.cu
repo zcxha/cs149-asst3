@@ -18,6 +18,8 @@
 #define SCAN_BLOCK_DIM BLOCK_SIZE
 #include "exclusiveScan.cu_inl"
 #include "circleBoxTest.cu_inl"
+#include <cub/cub.cuh>
+
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
@@ -720,8 +722,51 @@ __global__ void myKernelScatterCircleToIndices(int *tileCircleIndices, int indic
 //
 // Each thread block render a pixel block(16 x 16).
 // Each thread render a pixel
-__global__ void myKernelRenderCircles()
+// each tile gets its circle indices to render
+__global__ void myKernelRenderCircles(int *tileCircleIndices)
 {
+    int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
+    int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
+
+    int tileIdx = blockIdx.y * gridDim.x + blockIdx.x;
+    int tileThreadIdx = threadIdx.y * blockDim.x + threadIdx.x;
+
+    int *tileCircleOffset = cuConstRendererParams.tileCircleOffsets;
+    int *tileCircleCount = cuConstRendererParams.tileCircleCounts;
+    int *tileCircleCursor = cuConstRendererParams.tileCircleCursor;
+
+    // get pixel center
+    short imageWidth = cuConstRendererParams.imageWidth;
+    short imageHeight = cuConstRendererParams.imageHeight;
+
+    float invWidth = 1.f / imageWidth;
+    float invHeight = 1.f / imageHeight;
+
+    float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
+                                                 invHeight * (static_cast<float>(pixelY) + 0.5f));
+
+    float4 *imgPtr = (float4 *)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + pixelX)]);
+
+    // get circle indices to share memory
+    __shared__ uint circleIndices[BLOCK_SIZE];
+    
+    if(tileThreadIdx < tileCircleCount[tileIdx])
+    {
+        circleIndices[tileThreadIdx] = tileCircleIndices[tileCircleOffset[tileIdx] + tileThreadIdx];
+    }
+
+    __syncthreads();
+
+    for(int i = 0; i < tileCircleCount[tileIdx]; i++)
+    {
+        int circleIndex = circleIndices[i];
+        int index3 = 3 * circleIndex;
+
+        float3 p = *(float3 *)(&cuConstRendererParams.position[index3]);
+        shadePixel(circleIndex, pixelCenterNorm, p, imgPtr);
+    }
+
+    // int tileCircleCount = cuConstRendererParams.tileCircleCounts[]
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -963,6 +1008,10 @@ void CudaRenderer::advanceAnimation()
     cudaDeviceSynchronize();
 }
 
+void CudaRenderer::sortSegments(int *cudaDevTileCircleIndices, int devIndicesCount) {
+    sortKeys
+}
+
 void CudaRenderer::render()
 {
     /*
@@ -1030,11 +1079,16 @@ void CudaRenderer::render()
     // TEST
 
     /*
+        sortSegments
+    */
+    sortSegments(cudaDevTileCircleIndices, devIndicesCount);
+
+    /*
         Render
     */
     dim3 blockDim(tileWidth, tileHeight);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x, (image->height + blockDim.y - 1) / blockDim.y);
-    myKernelRenderCircles<<<gridDim, blockDim>>>();
+    myKernelRenderCircles<<<gridDim, blockDim>>>(cudaDevTileCircleIndices);
     {
         CUDAGETERROR
         cudaDeviceSynchronize();

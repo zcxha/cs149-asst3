@@ -21,13 +21,13 @@ else
 endif
 
 OBJDIR=objs
-CXXFLAGS=-O3 -Wall -g
+CXXFLAGS=-O3 -Wall -g -I/usr/local/cuda/include
 HOSTNAME=$(shell hostname)
 
 LIBS       :=
 FRAMEWORKS :=
 
-NVCCFLAGS=-O3 -m64
+NVCCFLAGS=-O3 -m64 -I/usr/local/cuda/include
 LIBS += GL glut cudart
 
 ifneq ($(wildcard /opt/cuda-8.0/.*),)
