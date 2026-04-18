@@ -745,19 +745,9 @@ __global__ void myKernelRenderCircles(int *tileCircleIndices)
 
     float4 *imgPtr = (float4 *)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + pixelX)]);
 
-    // get circle indices to share memory
-    __shared__ uint circleIndices[BLOCK_SIZE];
-
-    if (tileThreadIdx < tileCircleCount[tileIdx])
-    {
-        circleIndices[tileThreadIdx] = tileCircleIndices[tileCircleOffset[tileIdx] + tileThreadIdx];
-    }
-
-    __syncthreads();
-
     for (int i = 0; i < tileCircleCount[tileIdx]; i++)
     {
-        int circleIndex = circleIndices[i];
+        int circleIndex = tileCircleIndices[tileCircleOffset[tileIdx] + i];
         int index3 = 3 * circleIndex;
 
         float3 p = *(float3 *)(&cuConstRendererParams.position[index3]);
@@ -1037,8 +1027,8 @@ void CudaRenderer::sortSegments(int *cudaDevTileCircleIndices, int devIndicesCou
         cudaDevTileCircleIndices,
         devIndicesCount,
         tileCount,
-        cudaDeviceTileCircleOffset,
-        cudaDeviceTileCircleOffset + 1);
+        d_offsets,
+        d_offsets + 1);
 
     cudaMalloc(&d_temp_storage, temp_storage_bytes);
 
