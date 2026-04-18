@@ -1,2 +1,4 @@
 cuda_headers/
 .*/
+objs/
+*.ppm

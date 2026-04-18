@@ -28,6 +28,18 @@ struct GlobalConstants
 
     SceneName sceneName;
 
+    int tileWidth;
+    int tileHeight;
+    int tileCountX;
+    int tileCountY;
+    int tileCount;
+
+    int *tileCircleCounts;
+    int *tileCircleOffsets;
+    int *tileCircleCursor;
+
+    int **tileCircleIndices; // 4096 tiles
+
     int numCircles;
     float *position;
     float *velocity;
@@ -449,30 +461,69 @@ __global__ void kernelRenderCircles()
     }
 }
 
-// int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
-// int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
+__inline__ __device__ int clamp(int x, int a, int b)
+{
+    return x > a ? (x < b ? x : b) : a;
+}
 
-// short imageWidth = cuConstRendererParams.imageWidth;
-// short imageHeight = cuConstRendererParams.imageHeight;
+__global__ void tileReset()
+{
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
 
-// if (pixelX >= imageWidth || pixelY >= imageHeight)
-// {
-//     return;
-// }
+    if (index >= cuConstRendererParams.tileCount)
+    {
+        return;
+    }
 
-// float invWidth = 1.f / imageWidth;
-// float invHeight = 1.f / imageHeight;
+    cuConstRendererParams.tileCircleCounts[index] = 0;
+}
 
-// float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
-//                                      invHeight * (static_cast<float>(pixelY) + 0.5f));
+// myKernelTileCircleCount -- (CUDA device code)
+//
+__global__ void myKernelTileCircleCount()
+{
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
 
-// int numCircles = cuConstRendererParams.numCircles;
+    if (index >= cuConstRendererParams.numCircles)
+    {
+        return;
+    }
 
-// float4 *imgPtr = (float4 *)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + pixelX)]);
+    int index3 = 3 * index;
 
-// index        0 1 2 3  4  5
-// tileCounts   3 5 6 9  1  2
-// tileOffsets  0 3 8 14 23 24
+    int tileCountX = cuConstRendererParams.tileCountX;
+    int tileCountY = cuConstRendererParams.tileCountY;
+    int tileCount = cuConstRendererParams.tileCount;
+
+    // read position and radius
+    float3 p = *(float3 *)(&cuConstRendererParams.position[index3]);
+    float rad = cuConstRendererParams.radius[index];
+
+    float minX = p.x - rad;
+    float maxX = p.x + rad;
+    float minY = p.y - rad;
+    float maxY = p.y + rad;
+
+    int tileMinX = clamp(static_cast<int>(minX * tileCountX), 0, tileCountX);
+    int tileMaxX = clamp(static_cast<int>(maxX * tileCountX) + 1, 0, tileCountX);
+    int tileMinY = clamp(static_cast<int>(minY * tileCountY), 0, tileCountY);
+    int tileMaxY = clamp(static_cast<int>(maxY * tileCountY) + 1, 0, tileCountY);
+
+    int *tileCircleCounts = cuConstRendererParams.tileCircleCounts;
+    int *tileCircleCursor = cuConstRendererParams.tileCircleCursor;
+    int *tileCircleOffset = cuConstRendererParams.tileCircleOffsets;
+
+    for (int tileY = tileMinY; tileY < tileMaxY; tileY++)
+    {
+        for (int tileX = tileMinX; tileX < tileMaxX; tileX++)
+        {
+            int tileId = tileY * tileCountX + tileX;
+
+            atomicAdd(&tileCircleCounts[tileId], 1);
+        }
+    }
+}
+
 
 // myKernelRenderCircles -- (CUDA device code)
 //
@@ -480,88 +531,6 @@ __global__ void kernelRenderCircles()
 // Each thread render a pixel
 __global__ void myKernelRenderCircles()
 {
-    int pixelX = blockIdx.x * blockDim.x + threadIdx.x;
-    int pixelY = blockIdx.y * blockDim.y + threadIdx.y;
-
-    short imageWidth = cuConstRendererParams.imageWidth;
-    short imageHeight = cuConstRendererParams.imageHeight;
-
-    float invWidth = 1.f / imageWidth;
-    float invHeight = 1.f / imageHeight;
-
-    float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
-                                         invHeight * (static_cast<float>(pixelY) + 0.5f));
-
-    int numCircles = cuConstRendererParams.numCircles;
-
-    float4 *imgPtr = nullptr;
-    if (pixelX < imageWidth && pixelY < imageHeight)
-    {
-        imgPtr = (float4 *)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + pixelX)]);
-    }
-
-    int tileX = blockIdx.x * blockDim.x;
-    int tileY = blockIdx.y * blockDim.y;
-
-    // tile 的 box 边界
-    float boxL = invWidth * static_cast<float>(tileX);
-    float boxR = invWidth * static_cast<float>(tileX + blockDim.x);
-    float boxT = invHeight * static_cast<float>(tileY + blockDim.y);
-    float boxB = invHeight * static_cast<float>(tileY);
-
-    __shared__ uint flag[BLOCK_SIZE];
-    __shared__ uint scan[BLOCK_SIZE];
-    __shared__ uint scratch[2 * BLOCK_SIZE];
-    __shared__ uint circleIndices[BLOCK_SIZE];
-    __shared__ uint circles; // number of circles in this tile to render;
-    int threadLinearIndex = threadIdx.y * blockDim.x + threadIdx.x;
-    for (int circleBase = 0; circleBase < numCircles; circleBase += BLOCK_SIZE)
-    {
-        int circleIndex = circleBase + threadLinearIndex;
-
-        uint myFlag = 0;
-        if (circleIndex < numCircles)
-        {
-            int index3 = circleIndex * 3;
-            float3 p = *(float3 *)(&cuConstRendererParams.position[index3]);
-            float rad = cuConstRendererParams.radius[circleIndex];
-            // flag 0 1 0 1 0 1 1
-            myFlag = circleInBox(p.x, p.y, rad, boxL, boxR, boxT, boxB);
-        }
-        flag[threadLinearIndex] = myFlag;
-        __syncthreads();
-
-        // scan 0 0 1 1 2...
-        sharedMemExclusiveScan(threadLinearIndex, flag, scan, scratch, BLOCK_SIZE);
-        __syncthreads();
-
-        if (threadLinearIndex == 0)
-        {
-            circles = scan[BLOCK_SIZE - 1] + flag[BLOCK_SIZE - 1];
-        }
-
-        // circleIndices (scatter)
-        if (myFlag)
-        {
-            circleIndices[scan[threadLinearIndex]] = circleIndex;
-        }
-        __syncthreads();
-        // render for pixel
-
-        if (pixelX < imageWidth && pixelY < imageHeight && imgPtr != nullptr)
-        {
-            for (int i = 0; i < circles; i++)
-            {
-                int tileCircleIndex = circleIndices[i];
-                int tileIndex3 = tileCircleIndex * 3;
-                float3 tileP = *(float3 *)(&cuConstRendererParams.position[tileIndex3]);
-
-                shadePixel(tileCircleIndex, pixelCenterNorm, tileP, imgPtr);
-            }
-        }
-
-        __syncthreads();
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -668,6 +637,9 @@ void CudaRenderer::setup()
     // See the CUDA Programmer's Guide for descriptions of
     // cudaMalloc and cudaMemcpy
 
+    cudaMalloc(&cudaDeviceTileCircleCounts, sizeof(int) * tileCount);
+    cudaMalloc(&cudaDeviceTileCircleCursor, sizeof(int) * tileCount);
+    cudaMalloc(&cudaDeviceTileCircleOffset, sizeof(int) * tileCount);
     cudaMalloc(&cudaDevicePosition, sizeof(float) * 3 * numCircles);
     cudaMalloc(&cudaDeviceVelocity, sizeof(float) * 3 * numCircles);
     cudaMalloc(&cudaDeviceColor, sizeof(float) * 3 * numCircles);
@@ -678,7 +650,6 @@ void CudaRenderer::setup()
     cudaMemcpy(cudaDeviceVelocity, velocity, sizeof(float) * 3 * numCircles, cudaMemcpyHostToDevice);
     cudaMemcpy(cudaDeviceColor, color, sizeof(float) * 3 * numCircles, cudaMemcpyHostToDevice);
     cudaMemcpy(cudaDeviceRadius, radius, sizeof(float) * numCircles, cudaMemcpyHostToDevice);
-
     // Initialize parameters in constant memory.  We didn't talk about
     // constant memory in class, but the use of read-only constant
     // memory here is an optimization over just sticking these values
@@ -697,6 +668,18 @@ void CudaRenderer::setup()
     params.color = cudaDeviceColor;
     params.radius = cudaDeviceRadius;
     params.imageData = cudaDeviceImageData;
+    params.tileCount = tileCount;
+    params.tileCountX = tileCountX;
+    params.tileCountY = tileCountY;
+    params.tileWidth = tileWidth;
+    params.tileHeight = tileHeight;
+    params.tileCircleCounts = cudaDeviceTileCircleCounts;
+    params.tileCircleCursor = cudaDeviceTileCircleCursor;
+    params.tileCircleOffsets = cudaDeviceTileCircleOffset;
+    params.tileCircleIndices = cudaDeviceTileCircleIndices;
+
+    // device
+    // cudaMalloc(&params.tileCircleIndices[i], tilecirclesize);
 
     cudaMemcpyToSymbol(cuConstRendererParams, &params, sizeof(GlobalConstants));
 
@@ -792,11 +775,22 @@ void CudaRenderer::advanceAnimation()
 
 void CudaRenderer::render()
 {
+    // TODO: change to thread assignment
+    // cudaMemset(cuConstRendererParams.tileCircleCounts, 0, sizeof(int) * tileCount);
+    dim3 blockDim1(BLOCK_SIZE, 1);
+    dim3 gridDim1((tileCount + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    tileReset<<<blockDim1, gridDim1>>>();
+
+    dim3 blockDim0(BLOCK_SIZE, 1);
+    dim3 gridDim0((numCircles + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    myKernelTileCircleCount<<<gridDim0, blockDim0>>>();
+
+
     dim3 blockDim(tileWidth, tileHeight);
     dim3 gridDim((image->width + blockDim.x - 1) / blockDim.x, (image->height + blockDim.y - 1) / blockDim.y);
     myKernelRenderCircles<<<gridDim, blockDim>>>();
 
-    cudaError_t error = cudaGetLastError();
+    error = cudaGetLastError();
     if (error != cudaSuccess)
     {
         printf("error: %d (%s)", error, cudaGetErrorString(error));

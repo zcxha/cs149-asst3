@@ -27,6 +27,12 @@ private:
     float *cudaDeviceRadius;
     float *cudaDeviceImageData;
 
+    int *cudaDeviceTileCircleCounts;
+    int *cudaDeviceTileCircleOffset;
+    int *cudaDeviceTileCircleCursor;
+
+    int *cudaDeviceTileCircleIndices;
+
 public:
     CudaRenderer();
     virtual ~CudaRenderer();
