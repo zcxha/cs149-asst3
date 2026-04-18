@@ -32,10 +32,10 @@ LIBS += GL glut cudart
 
 ifneq ($(wildcard /opt/cuda-8.0/.*),)
 # Latedays
-LDFLAGS=-L/opt/cuda-8.0/lib64/ -lcudart
+LDFLAGS=-L/opt/cuda-8.0/lib64/ -lcudart_static -ldl -lrt -lpthread
 else
 # GHC
-LDFLAGS=-L/usr/local/cuda/lib64/ -lcudart
+LDFLAGS=-L/usr/local/cuda/lib64/ -lcudart_static -ldl -lrt -lpthread
 endif
 
 LDLIBS  := $(addprefix -l, $(LIBS))
